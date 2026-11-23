@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/thenudasahas2008/discord-quest-completer?style=for-the-badge&color=5865F2&logo=discord&logoColor=white)](https://github.com/thenudasahas2008/discord-quest-completer/releases/tag/v3.0.0)
 [![Direct Download](https://img.shields.io/badge/Download-DiscordQuestCompleter.exe-23A55A?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/thenudasahas2008/discord-quest-completer/releases/download/v3.0.0/DiscordQuestCompleter.exe)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-0078D6?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/thenudasahas2008/discord-quest-completer)
-[![Zero Install](https://img.shields.io/badge/Setup-Zero--Install%20Portable-FEE75C?style=for-the-badge&logo=speedtest&logoColor=black)](https://github.com/thenudasahas2008/discord-quest-completer)
+[![Zero Install](https://img.shields.io/badge/Setup-Zero%20Install%20Portable-FEE75C?style=for-the-badge&logo=speedtest&logoColor=black)](https://github.com/thenudasahas2008/discord-quest-completer)
 [![License](https://img.shields.io/badge/License-MIT-ED4245?style=for-the-badge)](LICENSE)
 
 <br/>
@@ -16,14 +16,14 @@
 
 </div>
 
----
+<br/>
 
 ## ❓ What is Discord Quest Completer?
 
 Discord frequently hosts **Quests** where users can earn free avatar decorations, profile effects, badges, and Nitro rewards by streaming or playing specific partner games (like *Call of Duty: Black Ops 6, Marvel Rivals, Brawlhalla, Fortnite, Apex Legends, Monster Hunter Wilds, etc.*) for 15 to 30 minutes.
 
 Normally, this requires:
-- Downloading and installing massive 50GB – 150GB game files.
+- Downloading and installing massive 50GB to 150GB game files.
 - Having a high-end gaming PC capable of running modern AAA games.
 - Keeping the heavy game running in the background while your GPU and CPU throttle.
 
@@ -32,7 +32,7 @@ Normally, this requires:
 2. It simultaneously handshakes with your local Discord client via Windows Named Pipes (`\\.\pipe\discord-ipc-0`) to broadcast live **Rich Presence Activity (`ActivityType: Playing`)**.
 3. Discord 100% detects that you are actively playing the game, counting your minutes toward your Quest rewards and profile activity with **zero bandwidth, zero disk space, and 0% GPU usage**.
 
----
+<br/>
 
 ## ✨ Features & Capabilities
 
@@ -54,7 +54,7 @@ Normally, this requires:
 - **📦 Single Portable Executable:**
   - Standalone `.exe` file. No installer, no Python setup, no dependencies.
 
----
+<br/>
 
 ## 🚀 Step-by-Step Guide
 
@@ -93,7 +93,7 @@ A dedicated **Active Quest Controller** window will open:
 - Once Discord notifies you that your quest is 100% complete, click **`⏹ STOP QUEST`**.
 - Return to Discord and click **Claim Reward** to unlock your prize!
 
----
+<br/>
 
 ## 🎯 Discord Game Variety Badge Booster
 
@@ -106,13 +106,13 @@ Discord features profile badges and **Recent Activity** milestones based on game
    `✅ Game Variety Registered! Logged to Discord Recent Activity`
 4. Click **`⏹ STOP QUEST`**, pick another game, and repeat to rapidly boost your Game Variety count!
 
----
+<br/>
 
 ## 🏷 #Tags & Keywords
 
 `#discord-quest` `#discord-quest-completer` `#discord-rich-presence` `#discord-rpc` `#game-spoofer` `#discord-game-variety` `#discord-badges` `#free-nitro` `#call-of-duty-quest` `#marvel-rivals-quest` `#brawlhalla-quest` `#windows-utility` `#customtkinter` `#python`
 
----
+<br/>
 
 ## 🔒 Safety & Privacy
 
@@ -120,7 +120,7 @@ Discord features profile badges and **Recent Activity** milestones based on game
 - **Open Source:** Full source code is open and audited for security.
 - **Resource Friendly:** Uses less than 20 MB of RAM and 0% CPU/GPU while active.
 
----
+<br/>
 
 ## 📜 License & Credits
 
