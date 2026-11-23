@@ -40,9 +40,10 @@ Normally, this requires:
 - **⚡ Dual-Engine Verification:**
   - **Native Win32 Process Spoofer:** Emulates authentic background game processes without triggering anticheat bans.
   - **Discord IPC Pipe (`\\.\pipe\discord-ipc-0`):** Direct Rich Presence broadcasting with real-time playtime timestamps.
-- **🎮 10,500+ Official Verified Games:**
+- **🎮 133,000+ Official Steam & Discord Games:**
+  - Complete Steam catalog integrated with official Steam AppIDs and executable mappings.
   - Clean store names formatted to Steam, Epic Games, and Xbox standards.
-  - Pre-indexed major titles: *Call of Duty: Black Ops 6, CoD MW3, CoD MW4, Marvel Rivals, Monster Hunter Wilds, Brawlhalla, Fortnite, VALORANT, Apex Legends, GTA V, Cyberpunk 2077, EA SPORTS FC 25, etc.*
+  - Pre-indexed major titles: *Call of Duty: Black Ops 6, CoD MW3, CoD MW4, Marvel Rivals, Monster Hunter Wilds, Brawlhalla, Fortnite, VALORANT, Apex Legends, GTA V, Cyberpunk 2077, EA SPORTS FC 25, Baldur's Gate 3, Palworld, Helldivers 2, Lethal Company, Terraria, Rust, Elden Ring, etc.*
 - **🎯 Discord Game Variety Badge Booster:**
   - Built-in 2-minute activity tracker ensuring each distinct game registers in your Discord Profile **Recent Activity** to increment your Game Variety score.
 - **⏱ Pure Unlimited Runtime Mode:**
