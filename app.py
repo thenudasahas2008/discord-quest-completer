@@ -113,19 +113,23 @@ class DiscordIPC:
             self.connected = False
             return False
 
-    def set_activity(self, state: str, details: str, start_time: int = None):
+    def set_activity(self, state: str, details: str, game_name: str = "", start_time: int = None):
         if not self.connected or not self.pipe:
             return False
         try:
+            act = {
+                "type": 0,  # ActivityType.Game (Playing)
+                "state": state,
+                "details": details,
+                "timestamps": {"start": start_time or int(time.time())}
+            }
+            if game_name:
+                act["name"] = game_name
             payload = {
                 "cmd": "SET_ACTIVITY",
                 "args": {
                     "pid": os.getpid(),
-                    "activity": {
-                        "state": state,
-                        "details": details,
-                        "timestamps": {"start": start_time or int(time.time())}
-                    }
+                    "activity": act
                 },
                 "nonce": str(time.time())
             }
@@ -176,7 +180,7 @@ class QuestManager:
 
         # Connect Discord IPC Rich Presence
         self.ipc.connect(app_id)
-        self.ipc.set_activity(state="Simulating Gameplay", details=f"Playing {game_name}")
+        self.ipc.set_activity(state=f"Playing {game_name}", details="Discord Activity", game_name=game_name)
 
         runner_template = resource_path(os.path.join("assets", "runner.exe"))
         if not os.path.exists(runner_template):
@@ -484,6 +488,19 @@ class ActiveQuestWindow(ctk.CTkToplevel):
         mins = (self.elapsed_secs % 3600) // 60
         secs = self.elapsed_secs % 60
         self.timer_label.configure(text=f"{hours:02d}:{mins:02d}:{secs:02d}")
+
+        # Discord Game Variety Badge requires running for at least 2 minutes
+        if self.elapsed_secs < 120:
+            rem = 120 - self.elapsed_secs
+            self.status_subtext.configure(
+                text=f"🎯 Game Variety Activity: {mins:02d}:{secs:02d} / 02:00 (Discord logs activity in {rem}s)",
+                text_color="#FEE75C"
+            )
+        else:
+            self.status_subtext.configure(
+                text="✅ Game Variety Registered! Logged to Discord Recent Activity",
+                text_color="#23A55A"
+            )
 
     def stop_quest(self):
         self.timer_running = False
