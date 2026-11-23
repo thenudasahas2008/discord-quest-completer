@@ -58,6 +58,13 @@ def build():
             print(f"Deploying to: {target_path}")
             shutil.copy2(built_exe, target_path)
 
+    # Notify Windows Shell to refresh desktop icon cache
+    try:
+        import ctypes
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
+    except Exception:
+        pass
+
     print("\n[SUCCESS] Build and deployment complete!")
 
 if __name__ == "__main__":
