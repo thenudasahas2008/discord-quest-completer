@@ -559,8 +559,8 @@ class DiscordQuestApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
 
         self.title(f"{APP_TITLE} {APP_VERSION}")
-        self.geometry("720x720")
-        self.minsize(640, 600)
+        self.geometry("800x780")
+        self.minsize(720, 640)
         self.configure(fg_color="#18191C")
 
         icon_path = resource_path(os.path.join("assets", "app.ico"))
@@ -592,92 +592,89 @@ class DiscordQuestApp(ctk.CTk):
         self.update_discord_status()
 
     def setup_ui(self):
-        # Top Header Bar
-        top_bar = ctk.CTkFrame(self, fg_color="transparent")
-        top_bar.pack(fill="x", padx=24, pady=(20, 10))
-
-        # Title Box (Left)
-        title_box = ctk.CTkFrame(top_bar, fg_color="transparent")
-        title_box.pack(side="left")
-
-        title_row = ctk.CTkFrame(title_box, fg_color="transparent")
-        title_row.pack(anchor="w")
+        # Tier 1: Brand Header Bar (Title on Left, Status Badge on Right)
+        header_bar = ctk.CTkFrame(self, fg_color="transparent")
+        header_bar.pack(fill="x", padx=24, pady=(18, 2))
 
         app_title = ctk.CTkLabel(
-            title_row,
+            header_bar,
             text="⚡ DISCORD QUEST COMPLETER",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color="#5865F2"
         )
         app_title.pack(side="left")
 
-        # Sleek, compact Discord Status Badge
+        # Sleek, compact Discord Status Badge on top right
         self.discord_status_pill = ctk.CTkLabel(
-            title_row,
+            header_bar,
             text="● Discord Connected",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#23A55A",
             fg_color="#182A20",
             corner_radius=12,
-            padx=10,
-            pady=2
+            padx=12,
+            pady=3
         )
-        self.discord_status_pill.pack(side="left", padx=(10, 0))
+        self.discord_status_pill.pack(side="right")
 
+        # Tier 2: Subtitle
         app_sub = ctk.CTkLabel(
-            title_box,
-            text="Select any verified game below to complete active Discord quests.",
+            self,
+            text="Select any verified game below to complete active Discord gameplay quests.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#949BA4"
         )
-        app_sub.pack(anchor="w", pady=(3, 0))
+        app_sub.pack(anchor="w", padx=24, pady=(0, 10))
 
-        # Top Right Actions
-        top_actions = ctk.CTkFrame(top_bar, fg_color="transparent")
-        top_actions.pack(side="right")
+        # Tier 3: Action Toolbar (Dedicated Row, Zero Crowding)
+        toolbar = ctk.CTkFrame(self, fg_color="transparent")
+        toolbar.pack(fill="x", padx=24, pady=(0, 10))
 
         self.test_btn = ctk.CTkButton(
-            top_actions,
+            toolbar,
             text="🧪 Test Connection",
             command=self.toggle_connection_test,
             width=135,
-            height=32,
+            height=34,
+            corner_radius=8,
             font=ctk.CTkFont(size=11, weight="bold"),
             fg_color="#5865F2",
             hover_color="#4752C4",
             text_color="#FFFFFF"
         )
-        self.test_btn.pack(side="left", padx=4)
+        self.test_btn.pack(side="left", padx=(0, 8))
 
         sync_btn = ctk.CTkButton(
-            top_actions,
+            toolbar,
             text="🔄 Sync API",
             command=self.sync_online_database,
-            width=90,
-            height=32,
+            width=100,
+            height=34,
+            corner_radius=8,
             font=ctk.CTkFont(size=11, weight="bold"),
             fg_color="#2B2D31",
             hover_color="#35373C",
             text_color="#DBDEE1"
         )
-        sync_btn.pack(side="left", padx=4)
+        sync_btn.pack(side="left", padx=(0, 8))
 
         custom_btn = ctk.CTkButton(
-            top_actions,
+            toolbar,
             text="➕ Custom Game",
             command=self.open_custom_game_modal,
-            width=110,
-            height=32,
+            width=120,
+            height=34,
+            corner_radius=8,
             font=ctk.CTkFont(size=11, weight="bold"),
             fg_color="#23A55A",
             hover_color="#1F924F",
             text_color="#FFFFFF"
         )
-        custom_btn.pack(side="left", padx=4)
+        custom_btn.pack(side="left")
 
-        # Search Bar with Instant Clear Button
+        # Tier 4: Search Bar with Instant Clear Button
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
-        search_frame.pack(fill="x", padx=24, pady=(8, 12))
+        search_frame.pack(fill="x", padx=24, pady=(0, 12))
 
         self.search_entry = ctk.CTkEntry(
             search_frame,
@@ -705,7 +702,7 @@ class DiscordQuestApp(ctk.CTk):
             text_color="#949BA4",
             command=self.clear_search
         )
-        clear_btn.pack(side="left", padx=(6, 0))
+        clear_btn.pack(side="left", padx=(8, 0))
 
         # Main Scrollable Game Cards List
         self.game_list_scroll = ctk.CTkScrollableFrame(
@@ -874,49 +871,57 @@ class DiscordQuestApp(ctk.CTk):
         for game in items:
             card = ctk.CTkFrame(
                 self.game_list_scroll,
-                corner_radius=6,
-                fg_color="#26282C",
-                height=62
+                corner_radius=8,
+                fg_color="#2B2D31",
+                height=66
             )
-            card.pack(fill="x", pady=3, padx=2)
+            card.pack(fill="x", pady=4, padx=6)
             card.pack_propagate(False)
 
-            # High-performance native GDI text container (0ms render overhead)
-            text_frame = tk.Frame(card, bg="#26282C")
-            text_frame.pack(side="left", fill="both", expand=True, padx=12, pady=6)
+            # Left Gamepad Icon Badge
+            icon_box = tk.Frame(card, bg="#1E1F22", width=38, height=38)
+            icon_box.pack_propagate(False)
+            icon_box.pack(side="left", padx=(12, 10), pady=14)
+            icon_lbl = tk.Label(icon_box, text="🎮", font=("Segoe UI Emoji", 13), bg="#1E1F22", fg="#5865F2")
+            icon_lbl.pack(expand=True)
+
+            # High-performance native GDI text container
+            text_frame = tk.Frame(card, bg="#2B2D31")
+            text_frame.pack(side="left", fill="both", expand=True, pady=12)
 
             title_lbl = tk.Label(
                 text_frame,
                 text=game["name"],
                 font=("Segoe UI", 11, "bold"),
-                fg="#F2F3F5",
-                bg="#26282C",
+                fg="#FFFFFF",
+                bg="#2B2D31",
                 anchor="w"
             )
             title_lbl.pack(anchor="w")
 
+            clean_exec = os.path.basename(game["exec"].replace("\\", "/"))
             exec_lbl = tk.Label(
                 text_frame,
-                text=f"Binary: {game['exec']}",
-                font=("Consolas", 9),
+                text=f"Executable: {clean_exec}   •   Discord Verified",
+                font=("Segoe UI", 9),
                 fg="#949BA4",
-                bg="#26282C",
+                bg="#2B2D31",
                 anchor="w"
             )
-            exec_lbl.pack(anchor="w", pady=(1, 0))
+            exec_lbl.pack(anchor="w", pady=(2, 0))
 
             launch_btn = ctk.CTkButton(
                 card,
                 text="LAUNCH ▶",
-                width=90,
-                height=32,
+                width=100,
+                height=34,
                 corner_radius=6,
                 font=ctk.CTkFont(size=11, weight="bold"),
                 fg_color="#23A55A",
                 hover_color="#1F924F",
                 command=lambda g=game: self.open_quest_window(g)
             )
-            launch_btn.pack(side="right", padx=10, pady=10)
+            launch_btn.pack(side="right", padx=14, pady=16)
 
         self.rendered_count += len(items)
 
