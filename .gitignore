@@ -1,0 +1,8 @@
+# Ignore build outputs
+build/
+dist/
+__pycache__/
+*.pyc
+*.spec
+.vscode/
+.idea/
