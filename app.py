@@ -714,6 +714,40 @@ class DiscordQuestApp(ctk.CTk):
         )
         self.game_list_scroll.pack(fill="both", expand=True, padx=24, pady=(4, 12))
 
+        # Ultra-Smooth Touchpad & Mousewheel Engine (Fixes touchpad micro-delta swallowing)
+        self.game_list_scroll._subpixel_accum = 0.0
+
+        def _smooth_mouse_wheel(event):
+            try:
+                x, y = self.winfo_pointerxy()
+                gx = self.game_list_scroll.winfo_rootx()
+                gy = self.game_list_scroll.winfo_rooty()
+                gw = self.game_list_scroll.winfo_width()
+                gh = self.game_list_scroll.winfo_height()
+
+                # Trigger scroll whenever cursor is anywhere over the game list area
+                if gx <= x <= gx + gw and gy <= y <= gy + gh:
+                    delta = getattr(event, "delta", 0)
+                    if not delta:
+                        return
+
+                    canvas = self.game_list_scroll._parent_canvas
+                    if canvas.yview() == (0.0, 1.0):
+                        return
+
+                    self.game_list_scroll._subpixel_accum += delta
+                    # Touchpads stream micro-deltas (1-4). Trigger on 2.0 units for instant responsiveness.
+                    if abs(self.game_list_scroll._subpixel_accum) >= 2.0:
+                        steps = int(self.game_list_scroll._subpixel_accum / 2.0)
+                        self.game_list_scroll._subpixel_accum -= (steps * 2.0)
+                        canvas.yview("scroll", -steps, "units")
+                        return "break"
+            except Exception:
+                pass
+
+        self.game_list_scroll._mouse_wheel_all = _smooth_mouse_wheel
+        self.bind_all("<MouseWheel>", _smooth_mouse_wheel, add=True)
+
         # Bottom Bar
         bottom_bar = ctk.CTkFrame(self, fg_color="transparent")
         bottom_bar.pack(fill="x", padx=24, pady=(0, 14))
