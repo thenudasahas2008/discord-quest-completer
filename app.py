@@ -113,16 +113,18 @@ class DiscordIPC:
             self.connected = False
             return False
 
-    def set_activity(self, state: str, details: str, game_name: str = "", start_time: int = None):
+    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None):
         if not self.connected or not self.pipe:
             return False
         try:
             act = {
                 "type": 0,  # ActivityType.Game (Playing)
-                "state": state,
-                "details": details,
                 "timestamps": {"start": start_time or int(time.time())}
             }
+            if state:
+                act["state"] = state
+            if details:
+                act["details"] = details
             if game_name:
                 act["name"] = game_name
             payload = {
@@ -178,9 +180,9 @@ class QuestManager:
     def start_quest(self, game_name: str, executable_name: str, app_id: str = "0") -> tuple[bool, str]:
         self.stop_quest()
 
-        # Connect Discord IPC Rich Presence
+        # Connect Discord IPC Rich Presence (clean authentic game card)
         self.ipc.connect(app_id)
-        self.ipc.set_activity(state=f"Playing {game_name}", details="Discord Activity", game_name=game_name)
+        self.ipc.set_activity(game_name=game_name)
 
         runner_template = resource_path(os.path.join("assets", "runner.exe"))
         if not os.path.exists(runner_template):
