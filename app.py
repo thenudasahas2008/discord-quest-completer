@@ -54,6 +54,7 @@ def check_discord_status() -> dict:
     }
 
 POPULAR_QUEST_NAMES = [
+    "Grand Theft Auto VI",
     "Marvel Rivals",
     "Genshin Impact",
     "Honkai: Star Rail",
@@ -92,13 +93,19 @@ class DiscordIPC:
         self.pipe = None
         self.connected = False
 
-    def connect(self, client_id: str = "356944273133928458") -> bool:
+    def connect(self, client_id: str = "356944273133928458", game_name: str = "") -> bool:
         pipe_path = r"\\.\pipe\discord-ipc-0"
         if not os.path.exists(pipe_path):
             return False
         try:
             self.pipe = open(pipe_path, "r+b", buffering=0)
-            clean_id = str(client_id).strip() if client_id and str(client_id).strip() != "0" else "356944273133928458"
+            clean_id = str(client_id).strip() if client_id else ""
+            gn = game_name.lower() if game_name else ""
+            if "grand theft auto vi" in gn or "gta vi" in gn or "gta 6" in gn:
+                clean_id = "1445160676522856458"
+            elif not (clean_id.isdigit() and len(clean_id) >= 17):
+                clean_id = "356944273133928458"
+
             handshake = json.dumps({"v": 1, "client_id": clean_id}).encode("utf-8")
             self.pipe.write(struct.pack("<II", 0, len(handshake)) + handshake)
             header = self.pipe.read(8)
@@ -113,7 +120,7 @@ class DiscordIPC:
             self.connected = False
             return False
 
-    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None):
+    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None, assets: dict = None):
         if not self.connected or not self.pipe:
             return False
         try:
@@ -127,6 +134,16 @@ class DiscordIPC:
                 act["details"] = details
             if game_name:
                 act["name"] = game_name
+
+            gn = game_name.lower() if game_name else ""
+            if "grand theft auto vi" in gn or "gta vi" in gn or "gta 6" in gn:
+                act["assets"] = {
+                    "large_image": "251322eb2a778edc62ecce8d791e3701",
+                    "large_text": "Grand Theft Auto VI"
+                }
+            elif assets:
+                act["assets"] = assets
+
             payload = {
                 "cmd": "SET_ACTIVITY",
                 "args": {
@@ -181,7 +198,7 @@ class QuestManager:
         self.stop_quest()
 
         # Connect Discord IPC Rich Presence (clean authentic game card)
-        self.ipc.connect(app_id)
+        self.ipc.connect(client_id=app_id, game_name=game_name)
         self.ipc.set_activity(game_name=game_name)
 
         runner_template = resource_path(os.path.join("assets", "runner.exe"))
@@ -773,9 +790,10 @@ class DiscordQuestApp(ctk.CTk):
     # ==================== DATA MANAGEMENT ====================
     def load_database(self):
         db_path = self.cached_gamelist_path
-        if not os.path.exists(db_path):
-            bundled_path = resource_path(os.path.join("assets", "gamelist.json"))
-            if os.path.exists(bundled_path):
+        bundled_path = resource_path(os.path.join("assets", "gamelist.json"))
+        # Refresh cache if bundled database exists and is newer or larger
+        if os.path.exists(bundled_path):
+            if not os.path.exists(db_path) or (os.path.getsize(bundled_path) > os.path.getsize(db_path)):
                 try:
                     shutil.copy2(bundled_path, db_path)
                 except Exception:
