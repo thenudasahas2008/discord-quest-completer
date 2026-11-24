@@ -17,9 +17,15 @@ import winsound
 import threading
 import subprocess
 import requests
+import msvcrt
+import ctypes
+from ctypes import wintypes
+import psutil
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox
+
+kernel32 = ctypes.windll.kernel32
 
 # Resource resolver for PyInstaller standalone bundles
 def resource_path(relative_path: str) -> str:
@@ -34,21 +40,21 @@ DISCORD_API_DETECTABLE = "https://discord.com/api/applications/detectable"
 GITHUB_MIRROR_DETECTABLE = "https://markterence.github.io/discord-quest-completer/detectable.json"
 
 def check_discord_status() -> dict:
-    """Verifies whether Discord desktop app is running and local IPC pipe exists."""
+    """Instantly verifies whether Discord desktop app is running and local IPC pipe exists without blocking."""
     pipe_exists = os.path.exists(r"\\.\pipe\discord-ipc-0")
+    if pipe_exists:
+        return {
+            "running": True,
+            "pipe": True,
+            "client": True
+        }
     discord_running = False
     try:
-        res = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq Discord.exe"],
-            capture_output=True,
-            text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-        discord_running = "Discord.exe" in res.stdout
+        discord_running = any(p.name().lower() == "discord.exe" for p in psutil.process_iter(["name"]))
     except Exception:
         pass
     return {
-        "running": pipe_exists or discord_running,
+        "running": discord_running,
         "pipe": pipe_exists,
         "client": discord_running
     }
@@ -93,9 +99,32 @@ class DiscordIPC:
         self.pipe = None
         self.connected = False
 
+    def _read_exact(self, size: int, timeout: float = 0.8) -> bytes:
+        if not self.pipe:
+            return b""
+        try:
+            handle = msvcrt.get_osfhandle(self.pipe.fileno())
+            start = time.time()
+            buf = bytearray()
+            avail = wintypes.DWORD(0)
+            while len(buf) < size:
+                if time.time() - start > timeout:
+                    break
+                if kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(avail), None):
+                    if avail.value > 0:
+                        chunk = self.pipe.read(min(size - len(buf), avail.value))
+                        if chunk:
+                            buf.extend(chunk)
+                            continue
+                time.sleep(0.005)
+            return bytes(buf)
+        except Exception:
+            return b""
+
     def connect(self, client_id: str = "356944273133928458", game_name: str = "") -> bool:
         pipe_path = r"\\.\pipe\discord-ipc-0"
         if not os.path.exists(pipe_path):
+            self.connected = False
             return False
         try:
             self.pipe = open(pipe_path, "r+b", buffering=0)
@@ -108,15 +137,24 @@ class DiscordIPC:
 
             handshake = json.dumps({"v": 1, "client_id": clean_id}).encode("utf-8")
             self.pipe.write(struct.pack("<II", 0, len(handshake)) + handshake)
-            header = self.pipe.read(8)
+            header = self._read_exact(8, timeout=0.8)
             if len(header) < 8:
+                self.pipe.close()
+                self.pipe = None
+                self.connected = False
                 return False
             op, length = struct.unpack("<II", header)
-            resp = self.pipe.read(length)
+            resp = self._read_exact(length, timeout=0.8)
             data = json.loads(resp.decode("utf-8"))
             self.connected = data.get("evt") == "READY"
             return self.connected
         except Exception:
+            if self.pipe:
+                try:
+                    self.pipe.close()
+                except Exception:
+                    pass
+                self.pipe = None
             self.connected = False
             return False
 
@@ -154,10 +192,10 @@ class DiscordIPC:
             }
             frame = json.dumps(payload).encode("utf-8")
             self.pipe.write(struct.pack("<II", 1, len(frame)) + frame)
-            header = self.pipe.read(8)
+            header = self._read_exact(8, timeout=0.5)
             if len(header) >= 8:
                 op, length = struct.unpack("<II", header)
-                self.pipe.read(length)
+                self._read_exact(length, timeout=0.5)
             return True
         except Exception:
             return False
@@ -250,31 +288,31 @@ class QuestManager:
             self.ipc.clear()
         except Exception:
             pass
-        if self.active_pid:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", str(self.active_pid)],
-                    capture_output=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-            except Exception:
-                pass
 
         if self.active_process:
             try:
                 self.active_process.kill()
-                self.active_process.wait(timeout=1)
             except Exception:
                 pass
+            self.active_process = None
+
+        if self.active_pid:
+            try:
+                p = psutil.Process(self.active_pid)
+                p.kill()
+            except Exception:
+                pass
+            self.active_pid = None
 
         if self.active_game and "executable" in self.active_game:
             try:
-                exe_name = os.path.basename(self.active_game["executable"])
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", exe_name],
-                    capture_output=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
+                exe_name = os.path.basename(self.active_game["executable"]).lower()
+                for p in psutil.process_iter(["name"]):
+                    if p.name().lower() == exe_name:
+                        try:
+                            p.kill()
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -315,10 +353,10 @@ class ActiveQuestWindow(ctk.CTkToplevel):
         # Elapsed timer state
         self.elapsed_secs = 0
         self.timer_running = False
-        self.timer_thread = None
+        self.timer_tick_id = None
 
         self.setup_ui()
-        self.start_quest()
+        self.after(50, self.start_quest)
 
     def setup_ui(self):
         # Header Badge
@@ -489,18 +527,19 @@ class ActiveQuestWindow(ctk.CTkToplevel):
             text_color="#23A55A"
         )
         self.status_subtext.configure(text=f"Simulating '{exec_name}' indefinitely...")
-        self.progress_bar.start()
+        try:
+            self.progress_bar.start()
+        except Exception:
+            pass
 
-        self.timer_thread = threading.Thread(target=self._timer_worker, daemon=True)
-        self.timer_thread.start()
+        self.timer_tick_id = self.after(1000, self._timer_tick)
 
-    def _timer_worker(self):
-        while self.timer_running:
-            time.sleep(1)
-            if not self.timer_running:
-                break
-            self.elapsed_secs += 1
-            self.after(0, self.update_timer)
+    def _timer_tick(self):
+        if not self.timer_running:
+            return
+        self.elapsed_secs += 1
+        self.update_timer()
+        self.timer_tick_id = self.after(1000, self._timer_tick)
 
     def update_timer(self):
         hours = self.elapsed_secs // 3600
@@ -523,9 +562,19 @@ class ActiveQuestWindow(ctk.CTkToplevel):
 
     def stop_quest(self):
         self.timer_running = False
+        if self.timer_tick_id:
+            try:
+                self.after_cancel(self.timer_tick_id)
+            except Exception:
+                pass
+            self.timer_tick_id = None
+
         self.quest_manager.stop_quest()
-        self.progress_bar.stop()
-        self.progress_bar.set(0.0)
+        try:
+            self.progress_bar.stop()
+            self.progress_bar.set(0.0)
+        except Exception:
+            pass
 
         self.stop_btn.configure(state="disabled")
         self.resume_btn.configure(state="normal")
@@ -738,6 +787,8 @@ class DiscordQuestApp(ctk.CTk):
 
         def _smooth_mouse_wheel(event):
             try:
+                if not self.winfo_viewable() or not self.game_list_scroll.winfo_exists():
+                    return
                 x, y = self.winfo_pointerxy()
                 gx = self.game_list_scroll.winfo_rootx()
                 gy = self.game_list_scroll.winfo_rooty()
@@ -871,10 +922,10 @@ class DiscordQuestApp(ctk.CTk):
 
     # ==================== SEARCH & FILTER ====================
     def on_search_changed(self, event=None):
-        # 100ms ultra-fast debounce
+        # 180ms smooth debounce
         if self.search_debounce_id:
             self.after_cancel(self.search_debounce_id)
-        self.search_debounce_id = self.after(100, self.apply_filter)
+        self.search_debounce_id = self.after(180, self.apply_filter)
 
     def clear_search(self):
         self.search_entry.delete(0, "end")
@@ -886,8 +937,13 @@ class DiscordQuestApp(ctk.CTk):
         query = self.search_entry.get().strip().lower()
 
         if query:
-            # 1ms indexed substring lookup across 10k items
-            self.filtered_games = [g for g in self.games_db if query in g.get("_s", "")]
+            matches = []
+            for g in self.games_db:
+                if query in g.get("_s", ""):
+                    matches.append(g)
+                    if len(matches) >= 500:
+                        break
+            self.filtered_games = matches
         else:
             self.filtered_games = self.games_db
 

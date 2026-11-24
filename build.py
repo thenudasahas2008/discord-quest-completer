@@ -37,6 +37,7 @@ def build():
         f"--add-data={os.path.join(assets_dir, 'app.ico')};assets",
         "--collect-all=customtkinter",
         "--collect-all=darkdetect",
+        "--collect-all=psutil",
         app_path
     ]
 
