@@ -137,14 +137,14 @@ class DiscordIPC:
 
             handshake = json.dumps({"v": 1, "client_id": clean_id}).encode("utf-8")
             self.pipe.write(struct.pack("<II", 0, len(handshake)) + handshake)
-            header = self._read_exact(8, timeout=0.8)
+            header = self._read_exact(8, timeout=1.5)
             if len(header) < 8:
                 self.pipe.close()
                 self.pipe = None
                 self.connected = False
                 return False
             op, length = struct.unpack("<II", header)
-            resp = self._read_exact(length, timeout=0.8)
+            resp = self._read_exact(length, timeout=1.5)
             data = json.loads(resp.decode("utf-8"))
             self.connected = data.get("evt") == "READY"
             return self.connected
@@ -158,7 +158,7 @@ class DiscordIPC:
             self.connected = False
             return False
 
-    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None, assets: dict = None):
+    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None, assets: dict = None, icon_hash: str = ""):
         if not self.connected or not self.pipe:
             return False
         try:
@@ -181,6 +181,11 @@ class DiscordIPC:
                 }
             elif assets:
                 act["assets"] = assets
+            elif icon_hash:
+                act["assets"] = {
+                    "large_image": icon_hash,
+                    "large_text": game_name
+                }
 
             payload = {
                 "cmd": "SET_ACTIVITY",
@@ -192,10 +197,10 @@ class DiscordIPC:
             }
             frame = json.dumps(payload).encode("utf-8")
             self.pipe.write(struct.pack("<II", 1, len(frame)) + frame)
-            header = self._read_exact(8, timeout=0.5)
+            header = self._read_exact(8, timeout=0.8)
             if len(header) >= 8:
                 op, length = struct.unpack("<II", header)
-                self._read_exact(length, timeout=0.5)
+                self._read_exact(length, timeout=0.8)
             return True
         except Exception:
             return False
@@ -232,12 +237,12 @@ class QuestManager:
             return False
         return self.active_process.poll() is None
 
-    def start_quest(self, game_name: str, executable_name: str, app_id: str = "0") -> tuple[bool, str]:
+    def start_quest(self, game_name: str, executable_name: str, app_id: str = "0", icon_hash: str = "") -> tuple[bool, str]:
         self.stop_quest()
 
         # Connect Discord IPC Rich Presence (clean authentic game card)
         self.ipc.connect(client_id=app_id, game_name=game_name)
-        self.ipc.set_activity(game_name=game_name)
+        self.ipc.set_activity(game_name=game_name, icon_hash=icon_hash)
 
         runner_template = resource_path(os.path.join("assets", "runner.exe"))
         if not os.path.exists(runner_template):
@@ -505,9 +510,10 @@ class ActiveQuestWindow(ctk.CTkToplevel):
         game_name = self.game["name"]
         exec_name = self.game["exec"]
         app_id = self.game.get("id", "0")
+        icon_hash = self.game.get("icon_hash", "")
 
         self.log(f"Launching spoofer for '{game_name}' ({exec_name})...")
-        success, msg = self.quest_manager.start_quest(game_name, exec_name, app_id)
+        success, msg = self.quest_manager.start_quest(game_name, exec_name, app_id, icon_hash)
 
         if not success:
             self.log(f"[ERROR] {msg}")
@@ -515,7 +521,11 @@ class ActiveQuestWindow(ctk.CTkToplevel):
             return
 
         self.log(f"[SUCCESS] {msg}")
-        self.log("Discord is now detecting game presence. Unlimited session active.")
+        if self.quest_manager.ipc.connected:
+            self.log("Discord Rich Presence: ACTIVE & BROADCASTING.")
+        else:
+            self.log("Discord Process Detection: ACTIVE.")
+        self.log("Note: If currently Streaming/Go-Live in a voice call, Discord displays that stream until stopped.")
 
         self.elapsed_secs = 0
         self.timer_running = True
@@ -539,6 +549,16 @@ class ActiveQuestWindow(ctk.CTkToplevel):
             return
         self.elapsed_secs += 1
         self.update_timer()
+        # Keepalive Rich Presence heartbeat every 20 seconds
+        if self.elapsed_secs % 20 == 0 and self.quest_manager.ipc.connected:
+            try:
+                self.quest_manager.ipc.set_activity(
+                    game_name=self.game["name"],
+                    start_time=int(time.time()) - self.elapsed_secs,
+                    icon_hash=self.game.get("icon_hash", "")
+                )
+            except Exception:
+                pass
         self.timer_tick_id = self.after(1000, self._timer_tick)
 
     def update_timer(self):
