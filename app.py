@@ -139,26 +139,42 @@ class DiscordIPC:
             self.pipe.write(struct.pack("<II", 0, len(handshake)) + handshake)
             header = self._read_exact(8, timeout=1.5)
             if len(header) < 8:
-                self.pipe.close()
-                self.pipe = None
-                self.connected = False
-                return False
+                return self._fallback_connect(pipe_path)
             op, length = struct.unpack("<II", header)
             resp = self._read_exact(length, timeout=1.5)
             data = json.loads(resp.decode("utf-8"))
-            self.connected = data.get("evt") == "READY"
-            return self.connected
+            if data.get("evt") == "READY":
+                self.connected = True
+                return True
+            else:
+                return self._fallback_connect(pipe_path)
         except Exception:
+            return self._fallback_connect(pipe_path)
+
+    def _fallback_connect(self, pipe_path: str) -> bool:
+        try:
             if self.pipe:
                 try:
                     self.pipe.close()
                 except Exception:
                     pass
-                self.pipe = None
-            self.connected = False
-            return False
+            self.pipe = open(pipe_path, "r+b", buffering=0)
+            universal_id = "356944273133928458"
+            handshake = json.dumps({"v": 1, "client_id": universal_id}).encode("utf-8")
+            self.pipe.write(struct.pack("<II", 0, len(handshake)) + handshake)
+            header = self._read_exact(8, timeout=1.5)
+            if len(header) >= 8:
+                op, length = struct.unpack("<II", header)
+                resp = self._read_exact(length, timeout=1.5)
+                data = json.loads(resp.decode("utf-8"))
+                self.connected = data.get("evt") == "READY"
+                return self.connected
+        except Exception:
+            pass
+        self.connected = False
+        return False
 
-    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None, assets: dict = None, icon_hash: str = ""):
+    def set_activity(self, state: str = "", details: str = "", game_name: str = "", start_time: int = None, assets: dict = None, icon_hash: str = "", pid: int = None):
         if not self.connected or not self.pipe:
             return False
         try:
@@ -190,7 +206,7 @@ class DiscordIPC:
             payload = {
                 "cmd": "SET_ACTIVITY",
                 "args": {
-                    "pid": os.getpid(),
+                    "pid": pid or os.getpid(),
                     "activity": act
                 },
                 "nonce": str(time.time())
@@ -240,9 +256,8 @@ class QuestManager:
     def start_quest(self, game_name: str, executable_name: str, app_id: str = "0", icon_hash: str = "") -> tuple[bool, str]:
         self.stop_quest()
 
-        # Connect Discord IPC Rich Presence (clean authentic game card)
+        # Connect Discord IPC Rich Presence (with auto-fallback to guaranteed universal ID)
         self.ipc.connect(client_id=app_id, game_name=game_name)
-        self.ipc.set_activity(game_name=game_name, icon_hash=icon_hash)
 
         runner_template = resource_path(os.path.join("assets", "runner.exe"))
         if not os.path.exists(runner_template):
@@ -268,12 +283,11 @@ class QuestManager:
         except Exception as e:
             return False, f"Failed to stage executable: {e}"
 
-        # Spawn runner with game title
+        # Spawn runner with game title (native Win32 GUI window so Discord hooks detect it)
         try:
             self.active_process = subprocess.Popen(
                 [target_path, "--title", game_name],
-                cwd=target_dir,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                cwd=target_dir
             )
             self.active_pid = self.active_process.pid
             self.active_game = {
@@ -282,6 +296,9 @@ class QuestManager:
                 "app_id": app_id,
                 "target_path": target_path
             }
+
+            # Bind Rich Presence activity directly to the game process PID
+            self.ipc.set_activity(game_name=game_name, icon_hash=icon_hash, pid=self.active_pid)
             return True, f"Started '{game_name}' ({clean_exec}) with PID {self.active_pid}"
         except Exception as e:
             self.stop_quest()
@@ -802,41 +819,54 @@ class DiscordQuestApp(ctk.CTk):
         )
         self.game_list_scroll.pack(fill="both", expand=True, padx=24, pady=(4, 12))
 
-        # Ultra-Smooth Touchpad & Mousewheel Engine (Fixes touchpad micro-delta swallowing)
-        self.game_list_scroll._subpixel_accum = 0.0
+        # High-Performance Butter-Smooth Scrolling Engine (Touchpad & Mousewheel)
+        self.mouse_in_games = False
+        self._wheel_accum = 0.0
 
-        def _smooth_mouse_wheel(event):
-            try:
-                if not self.winfo_viewable() or not self.game_list_scroll.winfo_exists():
-                    return
-                x, y = self.winfo_pointerxy()
-                gx = self.game_list_scroll.winfo_rootx()
-                gy = self.game_list_scroll.winfo_rooty()
-                gw = self.game_list_scroll.winfo_width()
-                gh = self.game_list_scroll.winfo_height()
+        def _set_mouse_over(val):
+            self.mouse_in_games = val
 
-                # Trigger scroll whenever cursor is anywhere over the game list area
-                if gx <= x <= gx + gw and gy <= y <= gy + gh:
-                    delta = getattr(event, "delta", 0)
-                    if not delta:
-                        return
+        self.game_list_scroll.bind("<Enter>", lambda e: _set_mouse_over(True), add=True)
+        self.game_list_scroll.bind("<Leave>", lambda e: _set_mouse_over(False), add=True)
+        try:
+            self.game_list_scroll._parent_canvas.bind("<Enter>", lambda e: _set_mouse_over(True), add=True)
+            self.game_list_scroll._parent_canvas.bind("<Leave>", lambda e: _set_mouse_over(False), add=True)
+        except Exception:
+            pass
 
-                    canvas = self.game_list_scroll._parent_canvas
-                    if canvas.yview() == (0.0, 1.0):
-                        return
+        def _handle_mouse_wheel(event):
+            if not getattr(self, "mouse_in_games", False):
+                return
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return
+            canvas = self.game_list_scroll._parent_canvas
+            if abs(delta) >= 120:
+                # Standard mouse wheel notch (120 units)
+                direction = -1 if delta > 0 else 1
+                canvas.yview_scroll(direction * 3, "units")
+            else:
+                # Precision Touchpad (micro-deltas 1-30)
+                self._wheel_accum += delta
+                if abs(self._wheel_accum) >= 4.0:
+                    steps = int(self._wheel_accum / 4.0)
+                    self._wheel_accum -= (steps * 4.0)
+                    canvas.yview_scroll(-steps, "units")
+            return "break"
 
-                    self.game_list_scroll._subpixel_accum += delta
-                    # Touchpads stream micro-deltas (1-4). Trigger on 2.0 units for instant responsiveness.
-                    if abs(self.game_list_scroll._subpixel_accum) >= 2.0:
-                        steps = int(self.game_list_scroll._subpixel_accum / 2.0)
-                        self.game_list_scroll._subpixel_accum -= (steps * 2.0)
-                        canvas.yview("scroll", -steps, "units")
-                        return "break"
-            except Exception:
-                pass
+        def _handle_wheel_up(event):
+            if getattr(self, "mouse_in_games", False):
+                self.game_list_scroll._parent_canvas.yview_scroll(-2, "units")
+                return "break"
 
-        self.game_list_scroll._mouse_wheel_all = _smooth_mouse_wheel
-        self.bind_all("<MouseWheel>", _smooth_mouse_wheel, add=True)
+        def _handle_wheel_down(event):
+            if getattr(self, "mouse_in_games", False):
+                self.game_list_scroll._parent_canvas.yview_scroll(2, "units")
+                return "break"
+
+        self.bind_all("<MouseWheel>", _handle_mouse_wheel, add=True)
+        self.bind_all("<Button-4>", _handle_wheel_up, add=True)
+        self.bind_all("<Button-5>", _handle_wheel_down, add=True)
 
         # Bottom Bar
         bottom_bar = ctk.CTkFrame(self, fg_color="transparent")
@@ -920,7 +950,8 @@ class DiscordQuestApp(ctk.CTk):
                     "name": name,
                     "exec": execs[0],
                     "all_execs": execs[:5],
-                    "popular": is_pop
+                    "popular": is_pop,
+                    "_s": f"{name} {execs[0]}".lower()
                 })
 
             parsed_games.sort(key=lambda x: (not x["popular"], x["name"].lower()))
@@ -936,16 +967,19 @@ class DiscordQuestApp(ctk.CTk):
         threading.Thread(target=_sync_worker, daemon=True).start()
 
     def on_sync_complete(self, count: int):
+        for g in self.games_db:
+            if "_s" not in g:
+                g["_s"] = f"{g.get('name', '')} {g.get('exec', '')} {g.get('aliases', '')}".lower()
         self.db_status_label.configure(text=f"Database: {count:,} verified games indexed")
         self.apply_filter()
         messagebox.showinfo("Sync Complete", f"Successfully synced {count:,} games directly from Discord!")
 
     # ==================== SEARCH & FILTER ====================
     def on_search_changed(self, event=None):
-        # 180ms smooth debounce
+        # 120ms ultra-fast responsive debounce
         if self.search_debounce_id:
             self.after_cancel(self.search_debounce_id)
-        self.search_debounce_id = self.after(180, self.apply_filter)
+        self.search_debounce_id = self.after(120, self.apply_filter)
 
     def clear_search(self):
         self.search_entry.delete(0, "end")
@@ -959,9 +993,13 @@ class DiscordQuestApp(ctk.CTk):
         if query:
             matches = []
             for g in self.games_db:
-                if query in g.get("_s", ""):
+                s_str = g.get("_s")
+                if not s_str:
+                    s_str = f"{g.get('name', '')} {g.get('exec', '')} {g.get('aliases', '')}".lower()
+                    g["_s"] = s_str
+                if query in s_str:
                     matches.append(g)
-                    if len(matches) >= 500:
+                    if len(matches) >= 300:
                         break
             self.filtered_games = matches
         else:
@@ -1134,7 +1172,8 @@ class DiscordQuestApp(ctk.CTk):
                 "name": g_name,
                 "exec": g_exec,
                 "all_execs": [g_exec],
-                "popular": True
+                "popular": True,
+                "_s": f"{g_name} {g_exec}".lower()
             }
 
             self.games_db.insert(0, custom_entry)
