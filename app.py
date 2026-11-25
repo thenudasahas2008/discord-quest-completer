@@ -93,6 +93,43 @@ POPULAR_QUEST_NAMES = [
     "Cyberpunk 2077"
 ]
 
+def resolve_discord_app_id(game_name: str, exec_name: str = "", games_db: list = None) -> str:
+    """Finds a verified 17-19 digit Discord Application ID for a given game name or binary."""
+    gn = game_name.strip().lower()
+    if not gn:
+        return ""
+    if "grand theft auto vi" in gn or "gta vi" in gn or "gta 6" in gn:
+        return "1445160676522856458"
+    if "grand theft auto v enhanced" in gn:
+        return "1421192030440263791"
+    if "grand theft auto v" in gn or "gta v" in gn or "gta 5" in gn:
+        return "1402418714716143646"
+    if "black myth: wukong" in gn or "wukong" in gn:
+        return "1272842103910699040"
+    if "brawlhalla" in gn:
+        return "356944273133928458"
+
+    if games_db:
+        for g in games_db:
+            gid = str(g.get("id", ""))
+            if gid.isdigit() and len(gid) >= 17:
+                if gn == g.get("name", "").strip().lower():
+                    return gid
+        for g in games_db:
+            gid = str(g.get("id", ""))
+            if gid.isdigit() and len(gid) >= 17:
+                if gn in g.get("name", "").strip().lower():
+                    return gid
+        if exec_name:
+            clean_ex = os.path.basename(exec_name.replace("/", "\\")).lower()
+            for g in games_db:
+                gid = str(g.get("id", ""))
+                if gid.isdigit() and len(gid) >= 17:
+                    g_ex = os.path.basename(g.get("exec", "").replace("/", "\\")).lower()
+                    if clean_ex == g_ex:
+                        return gid
+    return ""
+
 class DiscordIPC:
     """Communicates directly with Discord desktop via local IPC Named Pipe."""
     def __init__(self):
@@ -133,7 +170,8 @@ class DiscordIPC:
             if "grand theft auto vi" in gn or "gta vi" in gn or "gta 6" in gn:
                 clean_id = "1445160676522856458"
             elif not (clean_id.isdigit() and len(clean_id) >= 17):
-                clean_id = "356944273133928458"
+                resolved = resolve_discord_app_id(game_name)
+                clean_id = resolved if resolved else "356944273133928458"
 
             handshake = json.dumps({"v": 1, "client_id": clean_id}).encode("utf-8")
             self.pipe.write(struct.pack("<II", 0, len(handshake)) + handshake)
@@ -178,14 +216,17 @@ class DiscordIPC:
         if not self.connected or not self.pipe:
             return False
         try:
+            if not details:
+                details = "Discord Activity"
+            if not state:
+                state = f"Playing {game_name}" if game_name else "Playing Game"
+
             act = {
                 "type": 0,  # ActivityType.Game (Playing)
+                "details": details,
+                "state": state,
                 "timestamps": {"start": start_time or int(time.time())}
             }
-            if state:
-                act["state"] = state
-            if details:
-                act["details"] = details
             if game_name:
                 act["name"] = game_name
 
@@ -256,8 +297,12 @@ class QuestManager:
     def start_quest(self, game_name: str, executable_name: str, app_id: str = "0", icon_hash: str = "") -> tuple[bool, str]:
         self.stop_quest()
 
+        # Auto-resolve verified 17-19 digit Discord Application ID if custom or fallback
+        resolved_id = resolve_discord_app_id(game_name, executable_name)
+        effective_app_id = app_id if (str(app_id).isdigit() and len(str(app_id)) >= 17) else (resolved_id or app_id)
+
         # Connect Discord IPC Rich Presence (with auto-fallback to guaranteed universal ID)
-        self.ipc.connect(client_id=app_id, game_name=game_name)
+        self.ipc.connect(client_id=effective_app_id, game_name=game_name)
 
         runner_template = resource_path(os.path.join("assets", "runner.exe"))
         if not os.path.exists(runner_template):
@@ -298,7 +343,13 @@ class QuestManager:
             }
 
             # Bind Rich Presence activity directly to the game process PID
-            self.ipc.set_activity(game_name=game_name, icon_hash=icon_hash, pid=self.active_pid)
+            self.ipc.set_activity(
+                game_name=game_name,
+                details="Discord Activity",
+                state=f"Playing {game_name}",
+                icon_hash=icon_hash,
+                pid=self.active_pid
+            )
             return True, f"Started '{game_name}' ({clean_exec}) with PID {self.active_pid}"
         except Exception as e:
             self.stop_quest()
@@ -539,10 +590,10 @@ class ActiveQuestWindow(ctk.CTkToplevel):
 
         self.log(f"[SUCCESS] {msg}")
         if self.quest_manager.ipc.connected:
-            self.log("Discord Rich Presence: ACTIVE & BROADCASTING.")
+            self.log(f"Discord Activity: BROADCASTING 'Playing {game_name}'")
         else:
-            self.log("Discord Process Detection: ACTIVE.")
-        self.log("Note: If currently Streaming/Go-Live in a voice call, Discord displays that stream until stopped.")
+            self.log(f"Discord Process Detection: ACTIVE for '{exec_name}'")
+        self.log("⚠️ Note: If currently Streaming/Go-Live in Discord, stop stream to display game.")
 
         self.elapsed_secs = 0
         self.timer_running = True
@@ -571,8 +622,11 @@ class ActiveQuestWindow(ctk.CTkToplevel):
             try:
                 self.quest_manager.ipc.set_activity(
                     game_name=self.game["name"],
+                    details="Discord Activity",
+                    state=f"Playing {self.game['name']}",
                     start_time=int(time.time()) - self.elapsed_secs,
-                    icon_hash=self.game.get("icon_hash", "")
+                    icon_hash=self.game.get("icon_hash", ""),
+                    pid=self.quest_manager.active_pid
                 )
             except Exception:
                 pass
@@ -689,6 +743,7 @@ class DiscordQuestApp(ctk.CTk):
         )
         os.makedirs(self.cache_dir, exist_ok=True)
         self.cached_gamelist_path = os.path.join(self.cache_dir, "gamelist.json")
+        self.custom_games_path = os.path.join(self.cache_dir, "custom_games.json")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -900,16 +955,33 @@ class DiscordQuestApp(ctk.CTk):
                 except Exception:
                     db_path = bundled_path
 
+        # Load persisted custom games created by user
+        custom_games = []
+        if os.path.exists(self.custom_games_path):
+            try:
+                with open(self.custom_games_path, "r", encoding="utf-8") as f:
+                    custom_games = json.load(f)
+                    for cg in custom_games:
+                        cg["is_custom"] = True
+                        if "_s" not in cg:
+                            cg["_s"] = f"{cg.get('name', '')} {cg.get('exec', '')}".lower()
+            except Exception:
+                custom_games = []
+
         try:
             with open(db_path, "r", encoding="utf-8") as f:
                 self.games_db = json.load(f)
             # Pre-compute ultra fast search index (Name + Exec + Aliases)
             for g in self.games_db:
                 g["_s"] = f"{g.get('name', '')} {g.get('exec', '')} {g.get('aliases', '')}".lower()
-            self.db_status_label.configure(text=f"Database: {len(self.games_db):,} verified games indexed")
         except Exception:
             self.games_db = []
 
+        # Prepend user custom games at the top of the database
+        if custom_games:
+            self.games_db = custom_games + self.games_db
+
+        self.db_status_label.configure(text=f"Database: {len(self.games_db):,} verified games indexed")
         self.apply_filter()
 
     def sync_online_database(self):
@@ -1068,15 +1140,32 @@ class DiscordQuestApp(ctk.CTk):
             title_lbl.pack(anchor="w")
 
             clean_exec = os.path.basename(game["exec"].replace("\\", "/"))
+            is_custom = game.get("is_custom", False)
+            badge_text = "Custom Game" if is_custom else "Discord Verified"
             exec_lbl = tk.Label(
                 text_frame,
-                text=f"Executable: {clean_exec}   •   Discord Verified",
+                text=f"Executable: {clean_exec}   •   {badge_text}",
                 font=("Segoe UI", 9),
-                fg="#949BA4",
+                fg="#FEE75C" if is_custom else "#949BA4",
                 bg="#2B2D31",
                 anchor="w"
             )
             exec_lbl.pack(anchor="w", pady=(2, 0))
+
+            if is_custom:
+                remove_btn = ctk.CTkButton(
+                    card,
+                    text="🗑 Remove",
+                    width=85,
+                    height=34,
+                    corner_radius=6,
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    fg_color="#362224",
+                    hover_color="#522428",
+                    text_color="#DA373C",
+                    command=lambda g=game: self.remove_custom_game(g)
+                )
+                remove_btn.pack(side="right", padx=(0, 8), pady=16)
 
             launch_btn = ctk.CTkButton(
                 card,
@@ -1089,7 +1178,7 @@ class DiscordQuestApp(ctk.CTk):
                 hover_color="#1F924F",
                 command=lambda g=game: self.open_quest_window(g)
             )
-            launch_btn.pack(side="right", padx=14, pady=16)
+            launch_btn.pack(side="right", padx=(14 if not is_custom else 4, 14 if not is_custom else 0), pady=16)
 
         self.rendered_count += len(items)
 
@@ -1109,6 +1198,27 @@ class DiscordQuestApp(ctk.CTk):
             )
             self.load_more_btn.pack(fill="x", padx=10, pady=(6, 12))
 
+    def remove_custom_game(self, game: dict):
+        if not game.get("is_custom"):
+            return
+        g_name = game.get("name", "Custom Game")
+        if not messagebox.askyesno("Remove Custom Game", f"Are you sure you want to remove '{g_name}' from your custom games list?"):
+            return
+
+        # Remove from in-memory games_db
+        target_id = game.get("id")
+        self.games_db = [g for g in self.games_db if not (g.get("is_custom") and g.get("id") == target_id)]
+
+        # Persist updated custom games to JSON
+        custom_games_only = [g for g in self.games_db if g.get("is_custom")]
+        try:
+            with open(self.custom_games_path, "w", encoding="utf-8") as f:
+                json.dump(custom_games_only, f, indent=2)
+        except Exception:
+            pass
+
+        self.apply_filter()
+
     def open_quest_window(self, game: dict):
         """Hides the game list and opens the dedicated Active Quest Controller Window."""
         self.withdraw()  # Hide main window cleanly
@@ -1118,7 +1228,7 @@ class DiscordQuestApp(ctk.CTk):
     def open_custom_game_modal(self):
         modal = ctk.CTkToplevel(self)
         modal.title("Add Custom Quest Game")
-        modal.geometry("440x300")
+        modal.geometry("460x360")
         modal.resizable(False, False)
         modal.transient(self)
         modal.grab_set()
@@ -1128,37 +1238,46 @@ class DiscordQuestApp(ctk.CTk):
             text="Add Custom Game / Executable",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold")
         )
-        lbl_title.pack(padx=20, pady=(18, 10), anchor="w")
+        lbl_title.pack(padx=20, pady=(16, 6), anchor="w")
 
         lbl_desc = ctk.CTkLabel(
             modal,
-            text="Enter the exact game name and executable name that Discord recognizes for new quests.",
+            text="Enter the game name and executable. Custom games appear in your library with a remove button and persist across restarts.",
             font=ctk.CTkFont(size=11),
             text_color="#949BA4",
-            wraplength=390,
+            wraplength=410,
             justify="left"
         )
-        lbl_desc.pack(padx=20, pady=(0, 12), anchor="w")
+        lbl_desc.pack(padx=20, pady=(0, 10), anchor="w")
 
         entry_name = ctk.CTkEntry(
             modal,
-            placeholder_text="Game Name (e.g. New Quest Game)",
+            placeholder_text="Game Name (e.g. Grand Theft Auto VI, MyGame)",
             height=36,
             corner_radius=6
         )
-        entry_name.pack(fill="x", padx=20, pady=6)
+        entry_name.pack(fill="x", padx=20, pady=5)
 
         entry_exec = ctk.CTkEntry(
             modal,
-            placeholder_text="Executable Name (e.g. NewGameClient.exe)",
+            placeholder_text="Executable Name (e.g. gta6.exe, GameClient.exe)",
             height=36,
             corner_radius=6
         )
-        entry_exec.pack(fill="x", padx=20, pady=6)
+        entry_exec.pack(fill="x", padx=20, pady=5)
+
+        entry_app_id = ctk.CTkEntry(
+            modal,
+            placeholder_text="Discord Application ID (Optional - auto-detected if left blank)",
+            height=36,
+            corner_radius=6
+        )
+        entry_app_id.pack(fill="x", padx=20, pady=5)
 
         def _save_custom():
             g_name = entry_name.get().strip()
             g_exec = entry_exec.get().strip()
+            g_app_id = entry_app_id.get().strip()
 
             if not g_name or not g_exec:
                 messagebox.showwarning("Incomplete", "Both game name and executable name are required.")
@@ -1167,30 +1286,49 @@ class DiscordQuestApp(ctk.CTk):
             if not g_exec.lower().endswith(".exe"):
                 g_exec += ".exe"
 
+            # Auto-resolve Discord Application ID if omitted
+            if not (g_app_id.isdigit() and len(g_app_id) >= 17):
+                resolved = resolve_discord_app_id(g_name, g_exec, self.games_db)
+                if resolved:
+                    g_app_id = resolved
+                else:
+                    g_app_id = "custom_" + str(int(time.time()))
+
             custom_entry = {
-                "id": "custom_" + str(int(time.time())),
+                "id": g_app_id,
                 "name": g_name,
                 "exec": g_exec,
                 "all_execs": [g_exec],
                 "popular": True,
+                "is_custom": True,
                 "_s": f"{g_name} {g_exec}".lower()
             }
 
+            # Prepend to games_db
             self.games_db.insert(0, custom_entry)
+
+            # Persist custom games to custom_games.json
+            custom_games_only = [g for g in self.games_db if g.get("is_custom")]
+            try:
+                with open(self.custom_games_path, "w", encoding="utf-8") as f:
+                    json.dump(custom_games_only, f, indent=2)
+            except Exception:
+                pass
+
             self.apply_filter()
             modal.destroy()
             self.open_quest_window(custom_entry)
 
         btn_save = ctk.CTkButton(
             modal,
-            text="Save & Launch",
+            text="Save & Launch ▶",
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#23A55A",
             hover_color="#1F924F",
             height=38,
             command=_save_custom
         )
-        btn_save.pack(fill="x", padx=20, pady=(16, 12))
+        btn_save.pack(fill="x", padx=20, pady=(14, 10))
 
     def update_discord_status(self):
         """Polls Discord running state in background every 4s."""
